@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Chatbot - Full Screen</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body, html {
+            height: 100%;
+            width: 100%;
+            background-color: #f0f2f5;
+            display: flex;
+            overflow: hidden;
+        }
+        #container {
+            display: flex;
+            flex: 1;
+            height: 100vh;
+            width: 100vw;
+        }
+        #history-panel {
+            width: 300px;
+            background: white;
+            border-right: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+        }
+        #history-header {
+            padding: 1rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: bold;
+            font-size: 1.2rem;
+            text-align: center;
+        }
+        #history-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        .history-item {
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            background: #f0f2f5;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .history-item:hover {
+            background: #d6d9f7;
+        }
+        .history-item.active {
+            background: #667eea;
+            color: white;
+        }
+        #chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+        }
+        #chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem;
+            font-weight: bold;
+            font-size: 1.2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #chat-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 15px;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        .user-message {
+            background: #667eea;
+            color: white;
+            align-self: flex-end;
+            border-radius: 15px 15px 0 15px;
+        }
+        .bot-message {
+            background: #f0f2f5;
+            color: #1f1f1f;
+            align-self: flex-start;
+            border-radius: 15px 15px 15px 0;
+        }
+        .input-container {
+            padding: 20px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 10px;
+        }
+        #user-input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 25px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        #user-input:focus {
+            border-color: #667eea;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #764ba2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="history-panel">
+            <div id="history-header">Chat History</div>
+            <div id="history-list"></div>
+        </div>
+        <div id="chat-panel">
+            <div id="chat-header">
+                AI Assistant
+                <button id="new-chat-btn" title="Start New Chat">New Chat</button>
+            </div>
+            <div id="chat-body">
+                <div class="message bot-message">Hello! I'm your AI assistant powered by DeepSeek. How can I help you today?</div>
+            </div>
+            <div class="input-container">
+                <input type="text" id="user-input" placeholder="Type your message..." autocomplete="off" />
+                <button id="send-btn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const historyList = document.getElementById('history-list');
+        const chatBody = document.getElementById('chat-body');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const newChatBtn = document.getElementById('new-chat-btn');
+
+        let conversationHistory = [];
+        let selectedHistoryIndex = null;
+        let currentSessionId = null;
+
+        function addMessage(text, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', isUser ? 'user-message' : 'bot-message');
+            messageDiv.textContent = text;
+            chatBody.appendChild(messageDiv);
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+
+        function clearChat() {
+            chatBody.innerHTML = '';
+        }
+
+        function showTypingIndicator() {
+            const typingDiv = document.createElement('div');
+            typingDiv.classList.add('message', 'bot-message', 'typing-indicator');
+            typingDiv.id = 'typing-indicator';
+            typingDiv.innerHTML = `
+                <span class="typing-dot"></span>
+                <span class="typing-dot"></span>
+                <span class="typing-dot"></span>
+            `;
+            chatBody.appendChild(typingDiv);
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            const typingIndicator = document.getElementById('typing-indicator');
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
+        }
+
+        async function fetchSessions() {
+            try {
+                const response = await fetch('/sessions');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch sessions with status ${response.status}`);
+                }
+                const sessions = await response.json();
+                return sessions;
+            } catch (error) {
+                console.error("Error fetching sessions:", error);
+                return [];
+            }
+        }
+
+        async function fetchHistory(sessionId) {
+            try {
+                const response = await fetch(`/session/${sessionId}/history`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch history with status ${response.status}`);
+                }
+                const history = await response.json();
+                return history;
+            } catch (error) {
+                console.error("Error fetching history:", error);
+                return [];
+            }
+        }
+
+        function renderSessionList(sessions) {
+            historyList.innerHTML = '';
+            if (sessions.length === 0) {
+                historyList.innerHTML = '<p style="padding: 10px; color: #666;">No chat sessions available.</p>';
+                return;
+            }
+            sessions.forEach((sessionId) => {
+                const item = document.createElement('div');
+                item.classList.add('history-item');
+                if (sessionId === currentSessionId) {
+                    item.classList.add('active');
+                }
+                item.textContent = `Chat Session: ${sessionId.slice(0, 8)}...`;
+                item.addEventListener('click', () => {
+                    currentSessionId = sessionId;
+                    loadSession(sessionId);
+                });
+                historyList.appendChild(item);
+            });
+        }
+
+        async function loadSession(sessionId) {
+            const history = await fetchHistory(sessionId);
+            conversationHistory = history;
+            renderSessionList(await fetchSessions());
+            clearChat();
+            conversationHistory.forEach(msg => {
+                addMessage(msg.content, msg.role === 'user');
+            });
+        }
+
+        async function createNewSession() {
+            try {
+                const response = await fetch('/session', { method: 'POST' });
+                if (!response.ok) {
+                    throw new Error(`Failed to create session with status ${response.status}`);
+                }
+                const data = await response.json();
+                return data.session_id;
+            } catch (error) {
+                console.error("Error creating new session:", error);
+                return null;
+            }
+        }
+
+        async function sendMessage(message) {
+            if (!currentSessionId) {
+                currentSessionId = await createNewSession();
+                if (!currentSessionId) {
+                    addMessage("Error creating new chat session.");
+                    return;
+                }
+                await loadSession(currentSessionId);
+            }
+            showTypingIndicator();
+            sendBtn.disabled = true;
+            try {
+                const response = await fetch(`/session/${currentSessionId}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message }),
+                });
+                if (!response.ok) {
+                    throw new Error(`API request failed with status ${response.status}`);
+                }
+                const data = await response.json();
+                hideTypingIndicator();
+                addMessage(data.response);
+                conversationHistory.push({ role: 'user', content: message });
+                conversationHistory.push({ role: 'assistant', content: data.response });
+                renderSessionList(await fetchSessions());
+            } catch (error) {
+                hideTypingIndicator();
+                console.error('Error sending message:', error);
+                addMessage('Sorry, I encountered an error. Please try again.');
+            } finally {
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        function handleUserInput() {
+            const message = userInput.value.trim();
+            if (message) {
+                addMessage(message, true);
+                sendMessage(message);
+                userInput.value = '';
+            }
+        }
+
+        async function newChat() {
+            const newSessionId = await createNewSession();
+            if (!newSessionId) {
+                addMessage("Error creating new chat session.");
+                return;
+            }
+            currentSessionId = newSessionId;
+            clearChat();
+            addMessage("New chat started. How can I help you today?");
+            conversationHistory = [];
+            renderSessionList(await fetchSessions());
+        }
+
+        // Event listeners
+        sendBtn.addEventListener('click', handleUserInput);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleUserInput();
+        });
+        newChatBtn.addEventListener('click', newChat);
+
+        // Load sessions and history on page load
+        (async () => {
+            const sessions = await fetchSessions();
+            if (sessions.length > 0) {
+                currentSessionId = sessions[0];
+                await loadSession(currentSessionId);
+            } else {
+                await newChat();
+            }
+        })();
+    </script>
+</body>
+</html>
